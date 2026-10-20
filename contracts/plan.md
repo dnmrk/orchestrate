@@ -13,7 +13,7 @@ The architect writes it to `tasks/todo.md` in the target repo. It replaces any f
 - **Services / registration:** DI services, routes, subscribers and hooks that must be registered.
 - **Events / hooks:** what this subscribes to or emits.
 - **API contract:** endpoints, payloads, status codes. Who else calls this API, and do they still work?
-- **UI:** admin / storefront / mobile screens touched; new copy, quoted verbatim.
+- **UI:** admin / storefront / mobile screens touched; new copy, quoted verbatim. If this isn't `none`, the designer writes `.orchestrate/<slug>/design-spec.md` and you fold every `D-` item into an AC on the task that builds that screen.
 - **Permissions / ACL:** new privileges and who gets them.
 - **Config / env / dependencies:** new env vars, packages, and whether a native rebuild is needed.
 

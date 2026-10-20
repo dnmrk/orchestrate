@@ -16,6 +16,7 @@ The dispatch gives you:
 - the task brief (the plan's task section with its acceptance criteria), or the whole `tasks/todo.md` for a final pass;
 - the review package, which holds the commits, stat and full diff for BASE..HEAD;
 - the plan's Verification commands;
+- for a UI task or the final pass, the design spec path, if the run has one. Check every `D-` item the diff touches, each by the Check it names;
 - your report path.
 
 Read these first:
