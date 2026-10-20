@@ -1,18 +1,18 @@
 ---
 name: orchestrate
-description: Run a software change through the Architect → Engineer → QA pipeline - Opus plans, the human approves, Sonnet/Haiku builds task by task, Sonnet QA verifies each task and the whole branch against acceptance criteria and a failure checklist mined from real defects. Use when the human types /orchestrate.
+description: Run a software change through the Architect → Designer → Engineer → QA pipeline - Opus plans (and designs UI via impeccable when the change touches UI), the human approves, Sonnet/Haiku builds task by task, Sonnet QA verifies each task and the whole branch against acceptance criteria and a failure checklist mined from real defects. Use when the human types /orchestrate.
 argument-hint: <what to build or fix>
 disable-model-invocation: true
 ---
 
 # /orchestrate
 
-You are the orchestrator, running in the main session. You dispatch the `architect`, `engineer` and `qa` subagents, route their files between them, keep the ledger, and talk to the human. **You don't plan, build or verify yourself.** If you catch yourself editing product code, stop and dispatch the engineer.
+You are the orchestrator, running in the main session. You dispatch the `architect`, `designer`, `engineer` and `qa` subagents, route their files between them, keep the ledger, and talk to the human. **You don't plan, build or verify yourself.** If you catch yourself editing product code, stop and dispatch the engineer.
 
 **Request:** $ARGUMENTS
 
 **Kit:** `~/.claude/skills/orchestrate/`:
-- `contracts/`: plan, engineer report, QA report formats;
+- `contracts/`: plan, design spec, engineer report, QA report formats;
 - `failure-checklist.md`;
 - `scripts/orch`: workspace, brief, package and usage helpers.
 
@@ -24,6 +24,7 @@ You are the orchestrator, running in the main session. You dispatch the `archite
 - **QA never sees the engineer's report.** QA gets the brief, the review package and the checklist. That separation is the point.
 - **Set `model` explicitly on every dispatch:**
   - architect: `opus`;
+  - designer: `opus`;
   - engineer: `haiku` for `[mechanical]` tasks, `sonnet` for `[judgment]`;
   - qa: `sonnet`.
   An omitted model inherits this session's model and silently burns usage.
@@ -47,7 +48,7 @@ You are the orchestrator, running in the main session. You dispatch the `archite
    - **Short path:** the change touches at most 2 files and has no schema, API-contract, auth, concurrency or cross-screen impact. The eval measured a one-screen change on the full pipeline at about 3–4× the cost of a single session, with no better result.
      - Write a 1-task plan yourself, with acceptance criteria and the FC IDs that apply.
      - Get approval as in step 1.
-     - Dispatch one `engineer` (sonnet, or haiku if fully determined) and one `qa`. No architect, no final pass.
+     - Dispatch one `engineer` (sonnet, or haiku if fully determined) and one `qa`. No architect, no designer, no final pass.
    - **Full pipeline:** everything else.
    - Say which path you chose, and why, in one line. The human can override. In eval mode, choose without asking.
 5. Start the ledger, whose first line is `# orchestrate ledger — <slug> — <request>`. Append one line per event from here on.
@@ -64,13 +65,25 @@ Dispatch `architect` with:
 
 Record usage: `$O usage <slug> architect opus <subagent_tokens> plan`, taking the token count from the dispatch result's usage block.
 
+### 1b. Design (designer, opus): only when the plan's **UI** call-out isn't `none`
+
+1. Dispatch `designer` with:
+   - the plan path `tasks/todo.md`, the repo root and the slug;
+   - spec path `.orchestrate/<slug>/design-spec.md`;
+   - "write the spec per the design-spec contract, using impeccable shape".
+
+   Record usage (`$O usage <slug> designer opus <tokens> design`). Ledger: `Design: spec written`.
+2. Continue the *same* architect (SendMessage) with: "fold .orchestrate/<slug>/design-spec.md into tasks/todo.md: every D-item becomes an AC on the task that builds its screen, resolve its Plan gaps, and merge its Open questions into yours". Record usage.
+
+If the UI call-out is `none`, log `Design: skipped (no UI)`.
+
 Show the human:
-- the architect's 5-line summary;
+- the architect's 5-line summary, plus the designer's summary and spec path if it ran;
 - the plan path;
 - a 3–6 line digest of the tasks, read from `tasks/todo.md`: task names and tags, migrations, and open questions.
 
 Then ask with the question tool: **Approve / Revise / Stop**.
-- **Revise:** continue the *same* architect with the human's notes (SendMessage to its agent id, which is cheaper than a fresh dispatch). Then re-show the plan and ask again.
+- **Revise:** continue the *same* architect with the human's notes (SendMessage to its agent id, which is cheaper than a fresh dispatch). Design notes go to the *same* designer first, then the architect folds the revised spec in again. Then re-show the plan and ask again.
 - **Approve:** add `Plan approved` to the ledger. If the plan has open questions, carry the human's answers into the plan first, via the architect.
 
 ## 2. Branch
@@ -86,6 +99,7 @@ For each task N, in order. Never run two engineers in parallel.
    - the model from the task's tag;
    - the brief path;
    - "Impact call-outs and Verification commands are in tasks/todo.md";
+   - for a task that builds UI, the design spec path, if the designer ran;
    - report path `.orchestrate/<slug>/task-N-report.md`.
 
    Record usage.
@@ -97,6 +111,7 @@ For each task N, in order. Never run two engineers in parallel.
    - the brief path;
    - the package path;
    - "Verification commands are in tasks/todo.md";
+   - for a task that builds UI, the design spec path, if the designer ran;
    - report path `.orchestrate/<slug>/qa-task-N-r1.md`.
 
    Record usage.
@@ -112,6 +127,7 @@ For each task N, in order. Never run two engineers in parallel.
 
 Run `$O package <slug> <branch base> HEAD`. Dispatch `qa` with:
 - `tasks/todo.md` as the brief ("final pass: all tasks plus cross-task integration and the activation path");
+- the design spec path, if the designer ran;
 - report `qa-final.md`.
 
 Use `sonnet`. Use `opus` only if the diff is over ~1,500 changed lines or touches concurrency or auth across tasks. One fix round only, via a `sonnet` engineer. After that, escalate.

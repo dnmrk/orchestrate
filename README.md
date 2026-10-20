@@ -1,6 +1,6 @@
 # orchestrate
 
-Claude Code skill: `/orchestrate` runs a change through Architect → Engineer → QA subagents. See `SKILL.md`.
+Claude Code skill: `/orchestrate` runs a change through Architect → Designer (UI changes only, via impeccable) → Engineer → QA subagents. See `SKILL.md`.
 
 ## Install
 
