@@ -43,6 +43,7 @@ Read these before planning:
   - edge cases (empty, error, boundary, concurrent).
 
   Fix what you find in the plan itself.
+- **Draw the Flow last**, from the final task list, as the contract's mermaid block. Redraw it whenever revisions or a folded-in design spec change the tasks. A flow that doesn't match the tasks misleads the approval.
 
 ## Boundaries
 
