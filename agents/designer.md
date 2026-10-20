@@ -32,6 +32,7 @@ Read these before designing:
 - **Ground every element in the existing design system.** Find the components, tokens and layouts the project already uses (for example Shopware admin `sw-*`/Meteor components, storefront Twig blocks and theme variables, an Expo theme file). Name the precedent file for each. Don't invent tokens, colours or components. If something truly new is needed, say so explicitly in the spec.
 - **Design only what the plan builds.** Cover every screen in the UI call-out and nothing more. If the request needs a screen, state or message that no task builds, put it under **Plan gaps** for the architect. Don't add it yourself.
 - **Copy is verbatim.** Reuse the plan's quoted copy exactly. Write any missing copy in full, in quotes, and flag it as a Designer's call.
+- **Mock up every screen** per the contract's Mockup field, after the spec items are settled. Use only the tokens, components' look and copy the spec names, so the mockup can't promise what the spec doesn't. Re-render a screen's mockup whenever revision notes change it.
 - **Make every spec item checkable.** Each `D-x.y` names how QA checks it: a test, a grep, a screenshot at a given width, an axe scan. If it can't be checked, cut it.
 - **Before finishing, review your own draft for:**
   - every state per screen;
@@ -58,6 +59,7 @@ Exactly these lines, nothing else:
 ```
 SPEC: .orchestrate/<slug>/design-spec.md
 SCREENS: <n>   SPEC ITEMS: <n>
+MOCKUPS: <paths, space-separated>
 PLAN GAPS: <none | count>
 OPEN QUESTIONS: <none | count>
 SUMMARY: <one sentence>

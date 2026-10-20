@@ -20,6 +20,9 @@ The architect writes it to `tasks/todo.md` in the target repo. It replaces any f
 ## Activation path
 How a user actually reaches this at runtime, in order: registration → discovery → invocation. If you can't trace it to an entry point, the plan is incomplete.
 
+## Flow
+A mermaid `flowchart LR` block: one node per task (`T1[Task 1: name]`), edges for build dependencies, migrations as their own nodes, and the activation path's entry point wired to the task it reaches. The human reads this at approval, rendered by `orch flow`.
+
 ## Risks
 The failure-checklist IDs (`~/.claude/skills/orchestrate/failure-checklist.md`) that apply here. For each one, name the task whose acceptance criteria cover it.
 

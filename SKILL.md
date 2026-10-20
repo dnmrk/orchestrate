@@ -80,10 +80,12 @@ If the UI call-out is `none`, log `Design: skipped (no UI)`.
 Show the human:
 - the architect's 5-line summary, plus the designer's summary and spec path if it ran;
 - the plan path;
-- a 3–6 line digest of the tasks, read from `tasks/todo.md`: task names and tags, migrations, and open questions.
+- a 3–6 line digest of the tasks, read from `tasks/todo.md`: task names and tags, migrations, and open questions;
+- **the flow:** run `$O flow <slug>` and open the printed file in the browser (`open` on macOS, `xdg-open` on Linux). If it fails because there's no mermaid block, send the plan back to the architect; don't draw one yourself;
+- **the mockups**, if the designer ran: open each path from its `MOCKUPS:` line the same way, and list the paths.
 
 Then ask with the question tool: **Approve / Revise / Stop**.
-- **Revise:** continue the *same* architect with the human's notes (SendMessage to its agent id, which is cheaper than a fresh dispatch). Design notes go to the *same* designer first, then the architect folds the revised spec in again. Then re-show the plan and ask again.
+- **Revise:** continue the *same* architect with the human's notes (SendMessage to its agent id, which is cheaper than a fresh dispatch). Design notes go to the *same* designer first, then the architect folds the revised spec in again. Then re-show the plan, re-render and re-open the flow and any changed mockups, and ask again.
 - **Approve:** add `Plan approved` to the ledger. If the plan has open questions, carry the human's answers into the plan first, via the architect.
 
 ## 2. Branch

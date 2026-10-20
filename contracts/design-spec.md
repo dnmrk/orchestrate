@@ -15,6 +15,7 @@ Every item must be checkable by QA from the diff, a test, or a screenshot. If it
 
 ## Screens
 ### S1: <screen or component>  — built in Task <N>
+- **Mockup:** `.orchestrate/<slug>/mockups/S1.html`. One self-contained static HTML file (inline CSS, no build). It shows the default state, plus the empty, error and loading states side by side, at desktop width and at the smallest supported width. It uses the verbatim copy and the project's real token values. It's a picture for the human's approval, not the build's source of truth: the spec items are.
 - **Flow:** entry point → steps → exit, one line each.
 - **Layout & hierarchy:** what the user sees first, second, third; intent, not CSS.
 - **Components:** each element → the existing component or token it uses, with the precedent file. No new tokens or colours unless named here as new.
