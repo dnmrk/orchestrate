@@ -4,6 +4,7 @@
 #   orch brief SLUG N            -> extracts "### Task N" from tasks/todo.md, prints path
 #   orch package SLUG BASE HEAD  -> writes commits + stat + diff -U10 for QA, prints path
 #   orch usage SLUG AGENT MODEL TOKENS NOTE -> appends one row to .orchestrate/SLUG/usage.md
+#   orch flow SLUG               -> renders the plan's ```mermaid block to .orchestrate/SLUG/flow.html, prints path
 #   orch ui [--port N]           -> starts the Orchestrate Monitor web UI on http://127.0.0.1:7788
 set -euo pipefail
 cmd=${1:-}; shift || true
@@ -40,5 +41,15 @@ case "$cmd" in
     dir=$(ws "$1"); usage="$dir/usage.md"
     [ -s "$usage" ] || printf '| when | agent | model | tokens | note |\n|---|---|---|---|---|\n' > "$usage"
     printf '| %s | %s | %s | %s | %s |\n' "$(date '+%F %T')" "$2" "$3" "$4" "$5" >> "$usage" ;;
-  *) echo "usage: orch ui|workspace|brief|package|usage ..." >&2; exit 2 ;;
+  flow)
+    dir=$(ws "$1"); out="$dir/flow.html"
+    src=$(awk '/^```mermaid/ { on = 1; next } on && /^```/ { exit } on { print }' "$root/tasks/todo.md" \
+      | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
+    [ -n "$src" ] || { echo "no \`\`\`mermaid block in tasks/todo.md" >&2; exit 3; }
+    { echo '<!doctype html><meta charset="utf-8"><title>Plan flow</title><body style="font-family:system-ui;margin:24px">'
+      echo '<pre class="mermaid">'; printf '%s\n' "$src"; echo '</pre>'
+      echo '<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>'
+      echo '<script>mermaid.initialize({ startOnLoad: true })</script>'; } > "$out"
+    echo "$out" ;;
+  *) echo "usage: orch ui|workspace|brief|package|usage|flow ..." >&2; exit 2 ;;
 esac
