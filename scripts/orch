@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Helpers for /orchestrate, adapted from superpowers' subagent-driven-development scripts.
+#   orch workspace SLUG          -> prints .orchestrate/SLUG (created, git-ignored)
+#   orch brief SLUG N            -> extracts "### Task N" from tasks/todo.md, prints path
+#   orch package SLUG BASE HEAD  -> writes commits + stat + diff -U10 for QA, prints path
+#   orch usage SLUG AGENT MODEL TOKENS NOTE -> appends one row to .orchestrate/SLUG/usage.md
+#   orch ui [--port N]           -> starts the Orchestrate Monitor web UI on http://127.0.0.1:7788
+set -euo pipefail
+cmd=${1:-}; shift || true
+if [ "$cmd" = ui ]; then exec python3 "$(cd "$(dirname "$0")/.." && pwd)/monitor/server.py" "$@"; fi
+root=$(git rev-parse --show-toplevel)
+
+ws() {
+  local dir="$root/.orchestrate/$1"
+  mkdir -p "$dir"
+  [ -e "$root/.orchestrate/.gitignore" ] || printf '*\n' > "$root/.orchestrate/.gitignore"
+  printf '%s\n' "$dir"
+}
+
+case "$cmd" in
+  workspace) ws "$1" ;;
+  brief)
+    dir=$(ws "$1"); n=$2; out="$dir/task-$n-brief.md"
+    awk -v n="$n" '
+      /^```/ { fence = !fence }
+      !fence && /^#+[ \t]+Task[ \t]+[0-9]+/ { on = ($0 ~ ("^#+[ \t]+Task[ \t]+" n "([^0-9]|$)")) }
+      !fence && on && /^##[ \t]+[^#]/ && $0 !~ /Task/ { on = 0 }
+      on { print }' "$root/tasks/todo.md" > "$out"
+    [ -s "$out" ] || { echo "task $n not found in tasks/todo.md" >&2; exit 3; }
+    echo "$out" ;;
+  package)
+    dir=$(ws "$1"); base=$2; head=$3
+    git merge-base --is-ancestor "$base" "$head" || { echo "HEAD is not a descendant of BASE" >&2; exit 3; }
+    [ "$(git rev-list --count "$base..$head")" -gt 0 ] || { echo "empty range $base..$head" >&2; exit 3; }
+    out="$dir/diff-$(git rev-parse --short "$base")..$(git rev-parse --short "$head").md"
+    { echo "# Review package $base..$head"; echo; echo "## Commits"; git log --oneline "$base..$head"
+      echo; echo "## Files changed"; git diff --stat "$base..$head"; echo; echo "## Diff"; git diff -U10 "$base..$head"; } > "$out"
+    echo "$out" ;;
+  usage)
+    dir=$(ws "$1"); usage="$dir/usage.md"
+    [ -s "$usage" ] || printf '| when | agent | model | tokens | note |\n|---|---|---|---|---|\n' > "$usage"
+    printf '| %s | %s | %s | %s | %s |\n' "$(date '+%F %T')" "$2" "$3" "$4" "$5" >> "$usage" ;;
+  *) echo "usage: orch ui|workspace|brief|package|usage ..." >&2; exit 2 ;;
+esac
