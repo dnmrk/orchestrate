@@ -73,6 +73,7 @@ Record usage: `$O usage <slug> architect opus <subagent_tokens> plan`, taking th
    - "write the spec per the design-spec contract, using impeccable shape".
 
    Record usage (`$O usage <slug> designer opus <tokens> design`). Ledger: `Design: spec written`.
+   If it replies `BLOCKED: impeccable plugin not installed`, log `Design: blocked (impeccable missing)` and stop. Show the human the install commands from the README and don't continue without the spec.
 2. Continue the *same* architect (SendMessage) with: "fold .orchestrate/<slug>/design-spec.md into tasks/todo.md: every D-item becomes an AC on the task that builds its screen, resolve its Plan gaps, and merge its Open questions into yours". Record usage.
 
 If the UI call-out is `none`, log `Design: skipped (no UI)`.

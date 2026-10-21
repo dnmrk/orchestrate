@@ -30,7 +30,8 @@ Nothing in the pipeline pushes, merges or deploys. Those steps are left for you,
 
 - Claude Code with subagents and hooks
 - `git`, `jq` (used by the guard hook), `python3` (used by the monitor)
-- The [impeccable](https://github.com/pbakaus/impeccable) plugin, needed only for the designer step
+- The [impeccable](https://github.com/pbakaus/impeccable) plugin (required; the designer stops without it):
+  `claude plugin marketplace add pbakaus/impeccable && claude plugin install impeccable@impeccable`
 
 ## Install
 

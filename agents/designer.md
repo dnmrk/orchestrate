@@ -26,6 +26,7 @@ Read these before designing:
 ## How to design
 
 - **Use impeccable for the design work.** Invoke the `impeccable:impeccable` skill with `shape <the feature, and the target screens or files>`. Follow its Setup (the `impeccable context` launcher, or its documented fallback if the launcher fails) and its shape playbook.
+  - Impeccable is required. If the `impeccable:impeccable` skill isn't available, don't design without it: write no spec and reply with only `BLOCKED: impeccable plugin not installed`.
   - You can't ask the human questions. Take shape's no-human path: answer discovery from the request, the plan and the code, mark assumptions plainly, and finish the brief.
   - Use only `shape`, plus `critique`, `audit`, `harden`, `clarify`, `adapt` or their native variants as read-only analysis of existing screens. Never run `init`, `document`, `extract`, `live`, `generate`, `pin` or `hooks`. They write project files or need a human.
   - Impeccable's brief becomes your spec's **Brief**. Its states, interaction and constraints become the per-screen sections.

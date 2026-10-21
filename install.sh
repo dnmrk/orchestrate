@@ -18,3 +18,7 @@ warning: the guard hook is not registered. Add to ~/.claude/settings.json under 
   "PreToolUse": [{ "matcher": "Bash|Write|Edit|NotebookEdit",
     "hooks": [{ "type": "command", "command": "bash \"$HOME/.claude/hooks/orchestrate-guard.sh\"", "timeout": 10 }] }]
 EOF
+grep -qs '"impeccable@' "$HOME/.claude/plugins/installed_plugins.json" || cat >&2 <<'EOF2'
+warning: the impeccable plugin is not installed; the designer step requires it. Run:
+  claude plugin marketplace add pbakaus/impeccable && claude plugin install impeccable@impeccable
+EOF2
