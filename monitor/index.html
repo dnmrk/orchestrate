@@ -112,6 +112,18 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--inset); 
 .close { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 4px 10px; cursor: pointer; color: var(--muted); }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .err { color: var(--fail); }
+[hidden] { display: none !important; }
+.board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(180px, 1fr); gap: 12px; padding: 20px 24px 40px; overflow-x: auto; align-items: start; }
+@media (max-width: 900px) { .board { padding: 16px; grid-auto-columns: minmax(78vw, 1fr); scroll-snap-type: x mandatory; scroll-padding-inline: 16px; } .col { scroll-snap-align: start; } .col.is-empty { display: none; } }
+.col { background: var(--inset); border-radius: 12px; padding: 10px; display: grid; gap: 8px; align-content: start; min-height: 120px; }
+.col h3 { display: flex; justify-content: space-between; margin: 2px 4px 4px; }
+.col.stopped h3 { color: var(--fail); }
+.card.needs { border-color: var(--fail); box-shadow: inset 3px 0 0 var(--fail); }
+.card .proj { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .when { white-space: nowrap; }
+.flag { color: var(--fail); font-weight: 650; font-size: 12.5px; }
+.bar { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--run); }
 </style>
 </head>
 <body>
@@ -121,18 +133,22 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--inset); 
   <span class="updated" id="updated" aria-live="polite">Connecting…</span>
   <span class="spacer"></span>
   <div class="controls">
+    <div class="seg" role="group" aria-label="View" id="view">
+      <button type="button" data-v="board">Board</button><button type="button" data-v="sessions">Sessions</button>
+    </div>
     <label class="toggle"><input type="checkbox" id="runningOnly"> Running only</label>
     <div class="seg" role="group" aria-label="Time window" id="window">
       <button type="button" data-h="3">3h</button><button type="button" data-h="12" aria-pressed="true">12h</button><button type="button" data-h="48">2d</button>
     </div>
   </div>
 </header>
-<main>
+<div class="board" id="board" aria-label="Runs by stage"></div>
+<main id="sessionsView">
   <nav class="list" id="list" aria-label="Sessions"></nav>
   <section class="detail" id="detail" aria-live="off"><div class="panel empty">Select a session.</div></section>
 </main>
 <script>
-const state = { hours: 12, selected: localGet('session'), agent: null, data: null, runningOnly: false };
+const state = { hours: 12, selected: localGet('session'), agent: null, data: null, runningOnly: false, view: localGet('view') === 'sessions' ? 'sessions' : 'board' };
 const STAGES = ['Pre-flight', 'Plan', 'Approve', 'Build', 'Final QA', 'Report'];
 const $ = id => document.getElementById(id);
 
@@ -160,7 +176,44 @@ async function poll() {
   }
 }
 
+function columnOf(stage) {
+  if (/stop/i.test(stage)) return 'Stopped';
+  return STAGES.find(name => name.toLowerCase() === String(stage).toLowerCase()) || 'Pre-flight';
+}
+
+function renderBoard() {
+  const now = state.data.now;
+  const cards = state.data.board.filter(c => !state.runningOnly || c.status === 'running');
+  const waiting = state.data.board.filter(c => c.needs).length;
+  document.title = (waiting ? `(${waiting}) ` : '') + 'Orchestrate Monitor';
+  if (state.view !== 'board') return;
+  if (!cards.length) { $('board').innerHTML = '<div class="empty">No /orchestrate runs in this window.</div>'; return; }
+  const columns = [...STAGES, 'Stopped'];
+  $('board').innerHTML = columns.map(name => {
+    const here = cards.filter(c => columnOf(c.stage) === name);
+    if (name === 'Stopped' && !here.length) return '';
+    return `<section class="col ${name === 'Stopped' ? 'stopped' : ''} ${here.length ? '' : 'is-empty'}" aria-label="${esc(name)}"><h3><span>${esc(name)}</span><span>${here.length}</span></h3>${here.map(c => `
+      <button class="session card ${c.needs ? 'needs' : ''}" type="button" data-id="${esc(c.session)}" data-run="${esc(c.path)}">
+        <span class="top"><span class="dot ${c.status}"></span><span class="proj" title="${esc(c.project)}">${esc(c.project)}</span><span class="spacer"></span><span class="when">${ago(now - c.mtime)}</span></span>
+        <span class="title">${esc(c.slug)}</span>
+        ${c.needs ? `<span class="flag">⚠ Needs you · ${esc(c.needs)}</span>` : ''}
+        ${c.total ? `<span class="meta">${c.done}/${c.total} tasks</span><span class="bar" aria-hidden="true"><span style="width:${Math.round(100 * c.done / c.total)}%"></span></span>` : ''}
+        <span class="meta">${c.agent ? `<span class="badge ${role(c.agent.type)}" title="${esc(c.agent.action)}">${esc(c.agent.type)}</span><span>${esc(shortModel(c.agent.model))}</span>` : ''}<span>${fmtTokens(c.tokens)} tokens</span></span>
+      </button>`).join('')}</section>`;
+  }).join('');
+}
+
+function setView(view) {
+  state.view = view; localSet('view', view);
+  $('board').hidden = view !== 'board';
+  $('sessionsView').hidden = view === 'board';
+  document.querySelectorAll('#view button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === view)));
+  if (state.data) render();
+}
+
 function render() {
+  renderBoard();
+  if (state.view === 'board') return;
   const now = state.data.now;
   let sessions = state.data.sessions;
   if (state.runningOnly) sessions = sessions.filter(s => s.status === 'running');
@@ -182,7 +235,7 @@ function markCurrent() { document.querySelectorAll('.session').forEach(el => el.
 
 function renderDetail(s, now) {
   const models = Object.keys(s.models).map(shortModel).join(', ') || '—';
-  const run = s.runs[0];
+  const run = s.runs.find(r => r.path === state.run) || s.runs[0];
   let html = `<div class="panel">
     <h2>${esc(s.title)}</h2>
     <div class="facts"><span><span class="dot ${s.status}" style="display:inline-block"></span> <b>${s.status}</b></span><span>Project <b>${esc(s.project)}</b></span>${s.branch ? `<span>Branch <b>${esc(s.branch)}</b></span>` : ''}<span>Started <b>${time(s.started)}</b></span><span>Main model <b>${esc(models)}</b></span><span>Tokens <b>${fmtTokens(s.total)}</b> <span class="muted">+ ${fmtTokens(s.tokens.cache_read)} cache reads (main)</span></span></div>
@@ -230,7 +283,7 @@ async function loadAgent(path, scroll) {
 $('list').addEventListener('click', event => {
   const item = event.target.closest('.session');
   if (!item) return;
-  state.selected = item.dataset.id; state.agent = null; localSet('session', state.selected); markCurrent(); render();
+  state.selected = item.dataset.id; state.run = null; state.agent = null; localSet('session', state.selected); markCurrent(); render();
 });
 $('detail').addEventListener('click', event => { const row = event.target.closest('tr.agent'); if (row) loadAgent(row.dataset.path, true); });
 $('detail').addEventListener('keydown', event => { const row = event.target.closest('tr.agent'); if (row && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); loadAgent(row.dataset.path, true); } });
@@ -241,6 +294,13 @@ $('window').addEventListener('click', event => {
   poll();
 });
 $('runningOnly').addEventListener('change', event => { state.runningOnly = event.target.checked; if (state.data) render(); });
+$('view').addEventListener('click', event => { const button = event.target.closest('button'); if (button) setView(button.dataset.v); });
+$('board').addEventListener('click', event => {
+  const card = event.target.closest('.card');
+  if (!card) return;
+  state.selected = card.dataset.id; state.run = card.dataset.run; state.agent = null; localSet('session', state.selected); setView('sessions');
+});
+setView(state.view);
 poll();
 setInterval(poll, 3000);
 </script>
