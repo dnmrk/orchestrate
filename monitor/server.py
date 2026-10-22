@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import re
+import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -17,7 +18,10 @@ from urllib.parse import parse_qs, urlparse
 
 PROJECTS = Path.home() / ".claude" / "projects"
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "scripts"))
+import blueprint  # noqa: E402  (scripts/ is not a package)
 RUNNING_WINDOW = 90  # seconds since last write before an unfinished agent counts as idle
+TOOL_WINDOW = 1800  # a pending tool call keeps an agent running this long; past it, assume it was killed
 _cache: dict[str, tuple[float, int, dict]] = {}
 
 
@@ -89,8 +93,10 @@ def parse_transcript(path: Path) -> dict:
                         title = prompt_title(block.get("text", ""))
         elif entry.get("type") == "assistant":
             model = message.get("model")
-            usage = {} if message.get("id") in counted else (message.get("usage") or {})
-            counted.add(message.get("id"))
+            message_id = message.get("id")
+            usage = {} if message_id and message_id in counted else (message.get("usage") or {})
+            if message_id:
+                counted.add(message_id)
             out = usage.get("output_tokens", 0) or 0
             if model and model != "<synthetic>":
                 models[model] = models.get(model, 0) + out
@@ -123,12 +129,19 @@ def parse_transcript(path: Path) -> dict:
     return summary
 
 
+def busy(summary: dict) -> bool:
+    """Recent writes, or a tool call still awaiting its result: long builds and test runs write nothing."""
+    quiet = time.time() - summary["mtime"]
+    if quiet < RUNNING_WINDOW:
+        return True
+    pending = any(call["id"] not in summary["results"] for call in summary["calls"])
+    return pending and quiet < TOOL_WINDOW
+
+
 def agent_status(summary: dict, finished: bool) -> str:
     if finished:
         return "done"
-    if time.time() - summary["mtime"] < RUNNING_WINDOW:
-        return "running"
-    return "idle"
+    return "running" if busy(summary) else "idle"
 
 
 def current_action(summary: dict) -> str:
@@ -156,7 +169,7 @@ def find_orchestrate(cwd: str | None):
             root = candidate
             break
     runs = []
-    for ledger in sorted((root / ".orchestrate").glob("*/ledger.md"), key=lambda p: p.stat().st_mtime, reverse=True):
+    for index, ledger in enumerate(sorted((root / ".orchestrate").glob("*/ledger.md"), key=lambda p: p.stat().st_mtime, reverse=True)):
         lines = [line.rstrip() for line in ledger.read_text(errors="replace").splitlines() if line.strip()]
         usage_file = ledger.parent / "usage.md"
         usage = []
@@ -165,7 +178,8 @@ def find_orchestrate(cwd: str | None):
                 cells = [cell.strip() for cell in row.strip("|").split("|")]
                 if len(cells) == 5:
                     usage.append(dict(zip(["when", "agent", "model", "tokens", "note"], cells)))
-        runs.append({"slug": ledger.parent.name, "lines": lines, "stage": stage_of(lines), "tasks": tasks_of(lines), "usage": usage, "mtime": ledger.stat().st_mtime})
+        runs.append({"slug": ledger.parent.name, "path": str(ledger), "root": str(root), "lines": lines, "stage": stage_of(lines), "tasks": tasks_of(lines), "usage": usage, "mtime": ledger.stat().st_mtime,
+                     "blueprint": (root / "tasks" / "todo.md").exists() if index == 0 else (ledger.parent / "flow.html").exists()})
     return runs
 
 
@@ -173,13 +187,14 @@ STAGES = ["Pre-flight", "Plan", "Approve", "Build", "Final QA", "Report"]
 
 
 def stage_of(lines: list[str]) -> str:
-    """Explicit `STAGE: <name>` lines win; otherwise infer from ledger events in order (last wins)."""
+    """The last explicit `STAGE: <name>` line; only ledgers without any are inferred from events (last wins)."""
+    explicit = [match.group(1).strip() for line in lines[1:] if (match := re.match(r"stage:\s*(.+)", line, re.I))]
+    if explicit:
+        return explicit[-1]
     stage = "Pre-flight"
     for line in lines[1:]:
         lower = line.lower()
-        if explicit := re.match(r"stage:\s*(.+)", line, re.I):
-            stage = explicit.group(1).strip()
-        elif lower.startswith(("outcome", "report")):
+        if lower.startswith(("outcome", "report")):
             stage = "Report"
         elif lower.startswith("final"):
             stage = "Final QA"
@@ -213,6 +228,51 @@ def tasks_of(lines: list[str]):
     return sorted(tasks.values(), key=lambda task: task["n"])
 
 
+def needs_you(run: dict, session: dict) -> str | None:
+    """Why this run is waiting on the human, or None."""
+    if re.match(r"stop", run["stage"], re.I):
+        return "stopped"
+    if any(task["verdict"] == "BLOCKED" for task in run["tasks"]):
+        return "task blocked"
+    if run["stage"] == "Approve" and session["status"] != "running":
+        return "awaiting approval"
+    return None
+
+
+def planned_tasks(root: str) -> int:
+    try:
+        return len(re.findall(r"^### Task \d+", (Path(root) / "tasks" / "todo.md").read_text(errors="replace"), re.M))
+    except OSError:
+        return 0
+
+
+def board(found: list[dict]) -> list[dict]:
+    """One card per ledger, owned by the newest session in its repo; sessions arrive newest first."""
+    cards: dict[str, dict] = {}
+    for session in found:
+        for index, run in enumerate(session["runs"]):
+            if run["path"] in cards:
+                continue
+            active = next((agent for agent in reversed(session["agents"]) if agent["status"] == "running"), None)
+            # tasks/todo.md holds only the repo's latest plan, so older runs count started tasks only
+            total = max(len(run["tasks"]), planned_tasks(run["root"]) if index == 0 else 0)
+            cards[run["path"]] = {
+                "slug": run["slug"],
+                "path": run["path"],
+                "project": session["project"],
+                "stage": run["stage"],
+                "done": sum(task["state"] == "complete" for task in run["tasks"]),
+                "total": total,
+                "needs": needs_you(run, session),
+                "session": session["id"],
+                "status": session["status"],
+                "agent": active and {"type": active["type"], "model": active["model"], "action": active["action"]},
+                "tokens": session["total"],
+                "mtime": max(run["mtime"], session["mtime"]),
+            }
+    return sorted(cards.values(), key=lambda card: card["mtime"], reverse=True)
+
+
 def project_label(directory: Path) -> str:
     name = directory.name.lstrip("-")
     parts = [part for part in name.split("-") if part]
@@ -231,8 +291,10 @@ def sessions(hours: float):
             sub_dir = transcript.with_suffix("") / "subagents"
             newest = summary["mtime"]
             for sub in sorted(sub_dir.glob("agent-*.jsonl")) if sub_dir.exists() else []:
-                meta_path = sub.with_suffix(".meta.json")
-                meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+                try:
+                    meta = json.loads(sub.with_suffix(".meta.json").read_text())
+                except (OSError, ValueError):  # missing, or caught mid-write
+                    meta = {}
                 sub_summary = parse_transcript(sub)
                 newest = max(newest, sub_summary["mtime"])
                 finished = meta.get("toolUseId") in summary["results"]
@@ -251,7 +313,7 @@ def sessions(hours: float):
                     "action": current_action(sub_summary),
                     "background": meta.get("requestShape") == "background",
                 })
-            running = any(agent["status"] == "running" for agent in agents) or time.time() - summary["mtime"] < RUNNING_WINDOW
+            running = any(agent["status"] == "running" for agent in agents) or busy(summary)
             found.append({
                 "id": transcript.stem,
                 "path": str(transcript),
@@ -287,6 +349,20 @@ def agent_detail(path: str):
     return {"calls": calls, "final": final[-4000:], "tokens": summary["tokens"], "models": summary["models"]}
 
 
+def run_blueprint(path: str) -> str | None:
+    """The blueprint for one run's ledger: live from tasks/todo.md for the repo's newest run, else its saved flow.html.
+    Only paths shaped <repo>/.orchestrate/<slug>/ledger.md are accepted, so the route can't read arbitrary files."""
+    ledger = Path(path).resolve()
+    if ledger.name != "ledger.md" or ledger.parent.parent.name != ".orchestrate" or not ledger.is_file():
+        return None
+    newest = max(ledger.parent.parent.glob("*/ledger.md"), key=lambda p: p.stat().st_mtime)
+    todo = ledger.parent.parent.parent / "tasks" / "todo.md"
+    if newest == ledger and todo.is_file():
+        return blueprint.render(todo.read_text(errors="replace"), str(todo))
+    snapshot = ledger.parent / "flow.html"
+    return snapshot.read_text(errors="replace") if snapshot.is_file() else None
+
+
 class Handler(BaseHTTPRequestHandler):
     hours = 12.0
 
@@ -306,7 +382,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
         if url.path == "/api/sessions":
             hours = float(query.get("hours", [self.hours])[0])
-            return self.send(200, {"now": time.time(), "sessions": sessions(hours)})
+            found = sessions(hours)
+            return self.send(200, {"now": time.time(), "sessions": found, "board": board(found)})
+        if url.path == "/blueprint":
+            page = run_blueprint(query.get("run", [""])[0])
+            return self.send(200, page.encode(), "text/html; charset=utf-8") if page else self.send(404, {"error": "no blueprint for this run"})
         if url.path == "/api/agent":
             detail = agent_detail(query.get("path", [""])[0])
             return self.send(200, detail) if detail else self.send(404, {"error": "not found"})
