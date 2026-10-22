@@ -12,7 +12,7 @@ The main session acts as the orchestrator. It dispatches agents, passes file pat
 
 - **Plan before code.** The architect writes `tasks/todo.md`: impact call-outs (schema, API, auth, UI, ACL), the activation path, tasks tagged `[mechanical]` or `[judgment]` with acceptance criteria, and a mermaid flow.
 - **UI design pass.** If the plan's UI call-out isn't `none`, the designer runs impeccable's *shape* workflow. It writes a checkable design spec and one static HTML mockup per screen, then the architect folds the spec into the plan as ACs.
-- **One approval gate.** You see the plan digest, with the flow chart and mockups open in your browser, then choose **Approve / Revise / Stop**. Revisions go back to the same agents.
+- **One approval gate.** You see the plan digest, with the plan blueprint and mockups open in your browser, then choose **Approve / Revise / Stop**. The blueprint shows the impact call-outs (migrations and human steps in red), the flow chart coloured by task tag, every task's acceptance criteria and the open questions. Revisions go back to the same agents.
 - **Model routing per task.** `[mechanical]` tasks run on Haiku and `[judgment]` tasks on Sonnet. Every dispatch sets its model explicitly, so nothing inherits the session's Opus.
 - **Independent QA.** QA never sees the engineer's report. It works from the brief, the raw diff and real command runs, and sweeps every row of the failure checklist. A check marked `NOT RUN` makes the verdict BLOCKED, never PASS. Each task gets at most 2 fix rounds before it escalates to you, and a final whole-branch pass checks cross-task integration.
 - **Failure checklist.** `failure-checklist.md` lists defect classes mined from real PRs and sessions (sources in `evidence.md`), such as unapplied migrations, 5xx on boundary input, and stale optimistic state. The architect maps them to ACs and QA checks them.
@@ -81,6 +81,7 @@ To watch a run live:
 | `contracts/` | Output formats for the plan, design spec, engineer report and QA report |
 | `failure-checklist.md`, `evidence.md` | Defect classes checked on every run, and where they came from |
 | `scripts/orch` | Helpers: `workspace`, `brief`, `package`, `usage`, `flow`, `ui` |
+| `scripts/blueprint.py` | Renders `tasks/todo.md` as the approval blueprint (`orch flow`, and the monitor's Blueprint link) |
 | `hooks/orchestrate-guard.sh` | PreToolUse guard for the pipeline agents |
 | `monitor/` | The read-only web UI |
 | `EVAL.md` | Eval results, and what changed because of them |

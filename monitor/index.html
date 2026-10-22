@@ -244,7 +244,7 @@ function renderDetail(s, now) {
   if (run) {
     const stopped = /stop/i.test(run.stage);
     const at = stopped ? -1 : STAGES.indexOf(run.stage);
-    html += `<div class="panel"><h3>Pipeline · ${esc(run.slug)}</h3>
+    html += `<div class="panel"><div class="row" style="margin-bottom:12px"><h3 style="margin:0">Pipeline · ${esc(run.slug)}</h3>${run.blueprint ? `<a class="close" style="text-decoration:none" href="/blueprint?run=${encodeURIComponent(run.path)}" target="_blank" rel="noopener">Blueprint ↗</a>` : ''}</div>
       <div class="stages">${STAGES.map((name, i) => `<div class="stage ${stopped ? (i === 0 ? 'stopped' : '') : i < at ? 'done' : i === at ? 'now' : ''}">${esc(name)}</div>`).join('')}</div>
       ${run.tasks.length ? `<div class="scroll"><table><thead><tr><th>Task</th><th>Model</th><th>State</th><th>QA</th><th class="num">Fix rounds</th></tr></thead><tbody>${run.tasks.map(t => `<tr><td>Task ${t.n}</td><td>${esc(t.model)}</td><td>${esc(t.state)}</td><td><span class="verdict ${esc(t.verdict)}">${esc(t.verdict || '—')}</span></td><td class="num">${t.rounds}</td></tr>`).join('')}</tbody></table></div>` : ''}
       ${run.usage.length ? `<details style="margin-top:12px"><summary>Usage by dispatch (${run.usage.length})</summary><div class="scroll"><table style="margin-top:8px"><thead><tr><th>When</th><th>Agent</th><th>Model</th><th class="num">Tokens</th><th>Note</th></tr></thead><tbody>${run.usage.map(u => `<tr><td>${esc(u.when)}</td><td>${esc(u.agent)}</td><td>${esc(u.model)}</td><td class="num">${esc(u.tokens)}</td><td>${esc(u.note)}</td></tr>`).join('')}</tbody></table></div></details>` : ''}

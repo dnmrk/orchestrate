@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import re
+import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -17,6 +18,8 @@ from urllib.parse import parse_qs, urlparse
 
 PROJECTS = Path.home() / ".claude" / "projects"
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "scripts"))
+import blueprint  # noqa: E402  (scripts/ is not a package)
 RUNNING_WINDOW = 90  # seconds since last write before an unfinished agent counts as idle
 TOOL_WINDOW = 1800  # a pending tool call keeps an agent running this long; past it, assume it was killed
 _cache: dict[str, tuple[float, int, dict]] = {}
@@ -166,7 +169,7 @@ def find_orchestrate(cwd: str | None):
             root = candidate
             break
     runs = []
-    for ledger in sorted((root / ".orchestrate").glob("*/ledger.md"), key=lambda p: p.stat().st_mtime, reverse=True):
+    for index, ledger in enumerate(sorted((root / ".orchestrate").glob("*/ledger.md"), key=lambda p: p.stat().st_mtime, reverse=True)):
         lines = [line.rstrip() for line in ledger.read_text(errors="replace").splitlines() if line.strip()]
         usage_file = ledger.parent / "usage.md"
         usage = []
@@ -175,7 +178,8 @@ def find_orchestrate(cwd: str | None):
                 cells = [cell.strip() for cell in row.strip("|").split("|")]
                 if len(cells) == 5:
                     usage.append(dict(zip(["when", "agent", "model", "tokens", "note"], cells)))
-        runs.append({"slug": ledger.parent.name, "path": str(ledger), "root": str(root), "lines": lines, "stage": stage_of(lines), "tasks": tasks_of(lines), "usage": usage, "mtime": ledger.stat().st_mtime})
+        runs.append({"slug": ledger.parent.name, "path": str(ledger), "root": str(root), "lines": lines, "stage": stage_of(lines), "tasks": tasks_of(lines), "usage": usage, "mtime": ledger.stat().st_mtime,
+                     "blueprint": (root / "tasks" / "todo.md").exists() if index == 0 else (ledger.parent / "flow.html").exists()})
     return runs
 
 
@@ -345,6 +349,20 @@ def agent_detail(path: str):
     return {"calls": calls, "final": final[-4000:], "tokens": summary["tokens"], "models": summary["models"]}
 
 
+def run_blueprint(path: str) -> str | None:
+    """The blueprint for one run's ledger: live from tasks/todo.md for the repo's newest run, else its saved flow.html.
+    Only paths shaped <repo>/.orchestrate/<slug>/ledger.md are accepted, so the route can't read arbitrary files."""
+    ledger = Path(path).resolve()
+    if ledger.name != "ledger.md" or ledger.parent.parent.name != ".orchestrate" or not ledger.is_file():
+        return None
+    newest = max(ledger.parent.parent.glob("*/ledger.md"), key=lambda p: p.stat().st_mtime)
+    todo = ledger.parent.parent.parent / "tasks" / "todo.md"
+    if newest == ledger and todo.is_file():
+        return blueprint.render(todo.read_text(errors="replace"), str(todo))
+    snapshot = ledger.parent / "flow.html"
+    return snapshot.read_text(errors="replace") if snapshot.is_file() else None
+
+
 class Handler(BaseHTTPRequestHandler):
     hours = 12.0
 
@@ -366,6 +384,9 @@ class Handler(BaseHTTPRequestHandler):
             hours = float(query.get("hours", [self.hours])[0])
             found = sessions(hours)
             return self.send(200, {"now": time.time(), "sessions": found, "board": board(found)})
+        if url.path == "/blueprint":
+            page = run_blueprint(query.get("run", [""])[0])
+            return self.send(200, page.encode(), "text/html; charset=utf-8") if page else self.send(404, {"error": "no blueprint for this run"})
         if url.path == "/api/agent":
             detail = agent_detail(query.get("path", [""])[0])
             return self.send(200, detail) if detail else self.send(404, {"error": "not found"})
