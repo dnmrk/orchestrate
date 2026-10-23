@@ -31,9 +31,11 @@ You are the orchestrator, running in the main session. You dispatch the `archite
 - **Pass files, not pasted content.** Give agents paths. Don't paste plans, diffs or reports into dispatch prompts or into this context.
 - **Nobody pushes, merges, deploys or touches production during the run,** not even you. Those are hand-off items for the human. The guard hook enforces this for the three agents.
 - **Fix rounds:** at most 2 per task. After that, stop and escalate with the QA report path.
+- **A turn ending is not a completion receipt.** A worker needs a report with `DONE` or `DONE_WITH_CONCERNS`; QA needs its report with a verdict and reviewed range. A missing report or a question is `needs you` until resolved.
+- **The QA verdict belongs to one commit.** Record its reviewed HEAD, and repeat QA if product code changes after that commit. Do not report a later HEAD as verified by an earlier report.
 
 **Eval mode.** If the request starts with `--eval`, this is an unattended evaluation run:
-- auto-approve the plan and log `Plan auto-approved (eval)`;
+- auto-approve the plan and use `$O log` for `Plan auto-approved (eval)`;
 - answer NEEDS_CONTEXT from the plan, or as the architect's call;
 - on a FAIL after round 2, or on BLOCKED, record it and continue to the report instead of asking;
 - skip Step 5's commit of lessons, but still list the lessons in the report;
@@ -43,7 +45,7 @@ You are the orchestrator, running in the main session. You dispatch the `archite
 
 1. `git rev-parse --show-toplevel`. Then check `git status --porcelain`: if the tree is dirty, ask the human to commit or stash first. Never stash it yourself.
 2. Detect the default branch: `git symbolic-ref refs/remotes/origin/HEAD`, falling back to `main`. Pick a kebab-case **slug** from the request, then run `$O workspace <slug>`.
-3. **Resume check.** If `.orchestrate/<slug>/ledger.md` exists, trust it and `git log` over your memory. Resume at the first step without a completion line. Never re-dispatch completed tasks.
+3. **Resume check.** If `.orchestrate/<slug>/ledger.md` exists, trust it and `git log` over your memory. Resume at the first step without a completion line. Never re-dispatch completed tasks. Before dispatching another worker, stop any finished agent still waiting on background work and confirm the agent list contains no old worker that can resume into this checkout.
 4. **Size check.**
    - **Short path:** the change touches at most 2 files and has no schema, API-contract, auth, concurrency or cross-screen impact. The eval measured a one-screen change on the full pipeline at about 3–4× the cost of a single session, with no better result.
      - Write a 1-task plan yourself, with acceptance criteria and the FC IDs that apply.
@@ -51,9 +53,9 @@ You are the orchestrator, running in the main session. You dispatch the `archite
      - Dispatch one `engineer` (sonnet, or haiku if fully determined) and one `qa`. No architect, no designer, no final pass.
    - **Full pipeline:** everything else.
    - Say which path you chose, and why, in one line. The human can override. In eval mode, choose without asking.
-5. Start the ledger, whose first line is `# orchestrate ledger — <slug> — <request>`. Append one line per event from here on.
-   - At each stage change, also append `STAGE: <Pre-flight|Plan|Approve|Build|Final QA|Report|Stopped>`. The monitor UI reads these.
-   - Task lines use the forms `Task N: start base=<sha> model=<m>`, `Task N: QA r<k> <PASS|FAIL|BLOCKED>`, `Task N: fix round <k> model=<m>` and `Task N: complete head=<sha> qa=<verdict>`.
+5. Start the ledger, whose first line is `# orchestrate ledger — <slug> — <request>`. Record each later event with `$O log <slug> '<event>'`; it appends a UTC timestamp and updates the target repo's `.dagr/run.json` from the same ledger when dagr is installed. `$O dagr <slug>` rebuilds it on demand. Point the pane at that absolute path if its cwd is elsewhere; a pane watching this skill kit's run file will not update. The monitor reads the ledger too.
+   - Stage events: `STAGE: <Pre-flight|Plan|Approve|Build|Final QA|Report|Stopped>`. Record `Plan approved` after the human's yes.
+   - Task events: `Task N: start base=<sha> model=<m> agent=<actual id>` (after dispatch); `Task N: review` (after the worker's report); `Task N: QA r<k> <PASS|FAIL|BLOCKED> head=<sha> report=<path>`; `Task N: fix round <k> model=<m> agent=<actual id>`; `Task N: needs you reason=<why>`; `Task N: complete head=<reviewed sha> qa=PASS`. Keep every event; a retry adds a round.
 
 ## 1. Plan (architect, opus)
 
@@ -85,9 +87,9 @@ Show the human:
 - **the flow:** run `$O flow <slug>` and open the printed file in the browser (`open` on macOS, `xdg-open` on Linux). If it fails because there's no mermaid block, send the plan back to the architect; don't draw one yourself;
 - **the mockups**, if the designer ran: open each path from its `MOCKUPS:` line the same way, and list the paths.
 
-Then ask with the question tool: **Approve / Revise / Stop**.
+Log `STAGE: Approve`, then ask with the question tool: **Approve / Revise / Stop**. In eval mode, log `Plan auto-approved (eval)` and continue without asking.
 - **Revise:** continue the *same* architect with the human's notes (SendMessage to its agent id, which is cheaper than a fresh dispatch). Design notes go to the *same* designer first, then the architect folds the revised spec in again. Then re-show the plan, re-render and re-open the flow and any changed mockups, and ask again.
-- **Approve:** add `Plan approved` to the ledger. If the plan has open questions, carry the human's answers into the plan first, via the architect.
+- **Approve:** log `Plan approved`. If the plan has open questions, carry the human's answers into the plan first, via the architect.
 
 ## 2. Branch
 
@@ -97,7 +99,7 @@ Create `feat/<slug>` (or `fix/<slug>`) from the default branch, and commit `task
 
 For each task N, in order. Never run two engineers in parallel.
 
-1. `BASE=$(git rev-parse HEAD)`, then `$O brief <slug> N`. Ledger: `Task N: start base=<sha> model=<m>`.
+1. Confirm no old worker or background helper can resume into this checkout (TaskStop any finished-but-waiting agent, then ListAgents). `BASE=$(git rev-parse HEAD)`, then `$O brief <slug> N`.
 2. Dispatch `engineer` with:
    - the model from the task's tag;
    - the brief path;
@@ -106,10 +108,12 @@ For each task N, in order. Never run two engineers in parallel.
    - report path `.orchestrate/<slug>/task-N-report.md`.
 
    Record usage.
+   Log `Task N: start base=<sha> model=<m> agent=<dispatch id>` once the dispatch returns its id.
 3. Route on the engineer's Status:
-   - **DONE / DONE_WITH_CONCERNS:** continue. Read concerns only if they are about correctness or scope.
-   - **NEEDS_CONTEXT:** answer it from the plan or the codebase if you can. Otherwise ask the human. Then continue the same engineer.
-   - **BLOCKED:** if it's a permission denial, surface the exact command to the human. Suggest they allow it via `/permissions` or run it with `!`. Never relay approval yourself. For any other blocker, re-plan the task with the architect.
+   - **DONE / DONE_WITH_CONCERNS:** require the engineer report at the dispatch path, then log `Task N: review`. Read concerns only if they are about correctness or scope.
+   - **NEEDS_CONTEXT:** log `Task N: needs you reason=context`. Answer it from the plan or the codebase if you can. Otherwise ask the human. Then continue the same engineer.
+   - **BLOCKED:** log `Task N: needs you reason=blocked`. If it's a permission denial, surface the exact command to the human. Suggest they allow it via `/permissions` or run it with `!`. Never relay approval yourself. For any other blocker, re-plan the task with the architect.
+   - **Missing report or unrecognised status:** log `Task N: needs you reason=missing-engineer-report`; resume the same engineer to write it. Do not start QA from a turn-end signal alone.
 4. `$O package <slug> $BASE HEAD`. Dispatch `qa` (sonnet) with:
    - the brief path;
    - the package path;
@@ -119,14 +123,16 @@ For each task N, in order. Never run two engineers in parallel.
 
    Record usage.
 5. Check `git status --porcelain` shows no changes outside `.orchestrate/`. If QA left changes, record it in the ledger, and restore only the files QA touched, after showing the human.
-6. Route on the verdict:
-   - **PASS:** ledger `Task N: complete head=<sha> qa=PASS`.
-   - **FAIL** (round r = 1 or 2): continue the same engineer with "fix round r: fix every Critical/Important finding in <qa report path>". A `[mechanical]` task that fails is escalated: run the fix as a fresh `engineer` on `sonnet`. Then re-package `$BASE..HEAD` and dispatch a fresh `qa` with report `qa-task-N-r<r+1>.md`.
-   - **FAIL after round 2:** stop. Tell the human the task, the open findings and the report path, then ask: **fix manually / re-plan / accept with findings / stop**.
-   - **BLOCKED:** surface what QA couldn't run, and ask.
+6. Run `$O qa-head <qa report path>` to require the QA report and prove that its `Range` ends at the current HEAD. Log `Task N: QA r<k> <verdict> head=<returned sha> report=<path>`. If the range or report is missing, resume QA instead of treating the turn as a verdict. Route on the verdict:
+   - **PASS:** log `Task N: complete head=<reviewed sha> qa=PASS` only while product HEAD is still that SHA.
+   - **FAIL** (round r = 1 or 2): continue the same engineer with "fix round r: fix every Critical/Important finding in <qa report path>". A `[mechanical]` task that fails is escalated: run the fix as a fresh `engineer` on `sonnet`. Log `Task N: fix round <r> model=<m> agent=<actual id>` after dispatch. Then re-package `$BASE..HEAD` and dispatch a fresh `qa` with report `qa-task-N-r<r+1>.md`.
+   - **FAIL after round 2:** log `Task N: needs you reason=qa-round-limit`, then stop. Tell the human the task, the open findings and the report path, then ask: **fix manually / re-plan / accept with findings / stop**.
+   - **BLOCKED:** log `Task N: needs you reason=qa-blocked`; surface what QA couldn't run, and ask.
    - **Missing report:** if QA's report file is missing, continue the same QA agent and tell it to write the report. Don't transcribe a verdict yourself.
 
 ## 4. Whole-branch QA
+
+Full pipeline only. On the short path, the sole task's passing QA report is the final review.
 
 Run `$O package <slug> <branch base> HEAD`. Dispatch `qa` with:
 - `tasks/todo.md` as the brief ("final pass: all tasks plus cross-task integration and the activation path");
@@ -134,6 +140,7 @@ Run `$O package <slug> <branch base> HEAD`. Dispatch `qa` with:
 - report `qa-final.md`.
 
 Use `sonnet`. Use `opus` only if the diff is over ~1,500 changed lines or touches concurrency or auth across tasks. One fix round only, via a `sonnet` engineer. After that, escalate.
+Require `qa-final.md` to say PASS and run `$O qa-head .orchestrate/<slug>/qa-final.md`. Record the returned reviewed SHA. If a fix changes product code, package and run final QA again.
 
 ## 5. Learn
 
@@ -154,5 +161,9 @@ Fill the `## Review` section of `tasks/todo.md` and commit it. Then give the hum
   - device-only checks;
   - permission rules worth adding.
 - **Lessons added**, plus any proposed new checklist rows.
+
+Before handoff, run `$O handoff-head <final reviewed sha>` (the sole task QA on the short path, whole-branch QA otherwise). It permits only committed changes to `tasks/todo.md` and `tasks/lessons.md` after QA; any product change needs another QA pass. Report both SHAs when they differ, so the human knows exactly what was reviewed.
+
+Stop any run agent still active after its verified report. Keep the target repo's completed `.dagr/run.json` as the final graph; restore or remove only temporary copies or links made in other workspaces.
 
 Offer to push and open the PR. Do it only on an explicit yes, as a normal main-session action with its own permission prompt.

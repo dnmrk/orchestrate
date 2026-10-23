@@ -3,8 +3,12 @@
 #   orch workspace SLUG          -> prints .orchestrate/SLUG (created, git-ignored)
 #   orch brief SLUG N            -> extracts "### Task N" from tasks/todo.md, prints path
 #   orch package SLUG BASE HEAD  -> writes commits + stat + diff -U10 for QA, prints path
+#   orch qa-head REPORT          -> verifies the QA report's reviewed HEAD is current HEAD
+#   orch handoff-head REVIEWED   -> allows only lesson/review docs after reviewed HEAD
 #   orch usage SLUG AGENT MODEL TOKENS NOTE -> appends one row to .orchestrate/SLUG/usage.md
-#   orch flow SLUG               -> renders tasks/todo.md as the approval blueprint (flow chart included) to .orchestrate/SLUG/flow.html, prints path
+#   orch log SLUG EVENT          -> timestamps a ledger event and refreshes the dagr pane
+#   orch dagr SLUG               -> rebuilds the dagr pane and prints the run path
+#   orch flow SLUG               -> renders tasks/todo.md as the approval blueprint to .orchestrate/SLUG/flow.html
 #   orch ui [--port N]           -> starts the Orchestrate Monitor web UI on http://127.0.0.1:7788
 set -euo pipefail
 cmd=${1:-}; shift || true
@@ -30,21 +34,47 @@ case "$cmd" in
     [ -s "$out" ] || { echo "task $n not found in tasks/todo.md" >&2; exit 3; }
     echo "$out" ;;
   package)
-    dir=$(ws "$1"); base=$2; head=$3
+    dir=$(ws "$1"); base=$(git rev-parse --verify "$2^{commit}"); head=$(git rev-parse --verify "$3^{commit}")
     git merge-base --is-ancestor "$base" "$head" || { echo "HEAD is not a descendant of BASE" >&2; exit 3; }
     [ "$(git rev-list --count "$base..$head")" -gt 0 ] || { echo "empty range $base..$head" >&2; exit 3; }
     out="$dir/diff-$(git rev-parse --short "$base")..$(git rev-parse --short "$head").md"
     { echo "# Review package $base..$head"; echo; echo "## Commits"; git log --oneline "$base..$head"
       echo; echo "## Files changed"; git diff --stat "$base..$head"; echo; echo "## Diff"; git diff -U10 "$base..$head"; } > "$out"
     echo "$out" ;;
+  qa-head)
+    report=$1
+    [ -s "$report" ] || { echo "QA report missing: $report" >&2; exit 3; }
+    grep -Eq '^\*\*Verdict:\*\* (PASS|FAIL|BLOCKED)$' "$report" || { echo "QA verdict missing: $report" >&2; exit 3; }
+    reviewed=$(sed -nE 's/^\*\*Range:\*\* [0-9a-fA-F]{40,64}\.\.([0-9a-fA-F]{40,64}).*/\1/p' "$report")
+    [ -n "$reviewed" ] && [ "$reviewed" = "$(git rev-parse HEAD)" ] || { echo "QA report does not review current HEAD: $report" >&2; exit 3; }
+    echo "$reviewed" ;;
+  handoff-head)
+    reviewed=$(git rev-parse --verify "$1^{commit}")
+    [ -z "$(git status --porcelain)" ] || { echo 'uncommitted files at handoff' >&2; exit 3; }
+    while IFS= read -r file; do
+      case "$file" in
+        tasks/todo.md|tasks/lessons.md) ;;
+        *) echo "product file changed after QA: $file" >&2; exit 3 ;;
+      esac
+    done < <(git diff --name-only "$reviewed" HEAD)
+    echo "$reviewed" ;;
   usage)
     dir=$(ws "$1"); usage="$dir/usage.md"
     [ -s "$usage" ] || printf '| when | agent | model | tokens | note |\n|---|---|---|---|---|\n' > "$usage"
     printf '| %s | %s | %s | %s | %s |\n' "$(date '+%F %T')" "$2" "$3" "$4" "$5" >> "$usage" ;;
+  log)
+    slug=$1; shift; dir=$(ws "$slug")
+    [ -s "$dir/ledger.md" ] || { echo "ledger not found: $dir/ledger.md" >&2; exit 3; }
+    [ "$#" -gt 0 ] || { echo 'event text required' >&2; exit 2; }
+    printf '%s at=%s\n' "$*" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$dir/ledger.md"
+    python3 "$(cd "$(dirname "$0")/.." && pwd)/monitor/dagr.py" "$root" "$slug" --optional ;;
+  dagr)
+    python3 "$(cd "$(dirname "$0")/.." && pwd)/monitor/dagr.py" "$root" "$1"
+    echo "$root/.dagr/run.json" ;;
   flow)
     dir=$(ws "$1"); out="$dir/flow.html"
     python3 "$(cd "$(dirname "$0")" && pwd)/blueprint.py" "$root/tasks/todo.md" > "$out.tmp" || { rc=$?; rm -f "$out.tmp"; exit "$rc"; }
     mv "$out.tmp" "$out"
     echo "$out" ;;
-  *) echo "usage: orch ui|workspace|brief|package|usage|flow ..." >&2; exit 2 ;;
+  *) echo "usage: orch ui|workspace|brief|package|qa-head|handoff-head|usage|flow|log|dagr ..." >&2; exit 2 ;;
 esac
