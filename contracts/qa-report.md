@@ -4,7 +4,7 @@ QA writes it to the path given in the dispatch: `.orchestrate/<slug>/qa-task-<N>
 
 ```markdown
 **Verdict:** PASS | FAIL | BLOCKED
-**Range:** <BASE>..<HEAD>   **Counts:** AC <pass>/<total>, checklist <n applied>, findings C<n> I<n> M<n>
+**Range:** <full BASE sha>..<full HEAD sha>   **Counts:** AC <pass>/<total>, checklist <n applied>, findings C<n> I<n> M<n>
 
 ## Acceptance criteria
 | AC | Verdict (PASS/FAIL/UNVERIFIABLE) | Evidence: the command you ran and its key output line, or file:line you inspected |
@@ -32,3 +32,4 @@ For each Critical or Important finding, one line in the form "When <situation>, 
 - **BLOCKED:** you couldn't run what verification needs, for example because a service is down or a permission was denied. Say exactly what was missing. Never guess a verdict.
 - **UNVERIFIABLE** on an AC counts as FAIL, unless the AC itself is only verifiable on a device or in production. In that case, mark it so it is carried to the human as an open item.
 - Evidence is something you ran or read in this session. A claim in a commit message is not evidence.
+- The Range HEAD is the exact commit QA reviewed. Re-check it with `git rev-parse HEAD` before writing the verdict; if the code moved during QA, report BLOCKED so it can be packaged again.

@@ -12,6 +12,9 @@ done
 mkdir -p "$HOME/.claude/hooks"
 ln -sfn "$here/hooks/orchestrate-guard.sh" "$HOME/.claude/hooks/orchestrate-guard.sh"
 echo "linked orchestrate-guard.sh"
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+ln -sfn "$here/codex" "${CODEX_HOME:-$HOME/.codex}/skills/orchestrate"
+echo "linked Codex skill orchestrate"
 # Registering the hook edits the human's settings, so only check it.
 grep -qs 'orchestrate-guard.sh' "$HOME/.claude/settings.json" || cat >&2 <<'EOF'
 warning: the guard hook is not registered. Add to ~/.claude/settings.json under "hooks":

@@ -188,7 +188,7 @@ STAGES = ["Pre-flight", "Plan", "Approve", "Build", "Final QA", "Report"]
 
 def stage_of(lines: list[str]) -> str:
     """The last explicit `STAGE: <name>` line; only ledgers without any are inferred from events (last wins)."""
-    explicit = [match.group(1).strip() for line in lines[1:] if (match := re.match(r"stage:\s*(.+)", line, re.I))]
+    explicit = [re.sub(r"\s+at=\S+$", "", match.group(1)).strip() for line in lines[1:] if (match := re.match(r"stage:\s*(.+)", line, re.I))]
     if explicit:
         return explicit[-1]
     stage = "Pre-flight"
@@ -215,10 +215,14 @@ def tasks_of(lines: list[str]):
             continue
         number, rest = match.groups()
         task = tasks.setdefault(number, {"n": int(number), "state": "building", "verdict": "", "rounds": 0, "model": ""})
-        if model := re.search(r"model=(\w+)", rest):
+        if model := re.search(r"model=([^\s]+)", rest):
             task["model"] = model.group(1)
         if "complete" in rest:
             task["state"] = "complete"
+        elif "needs you" in rest or "BLOCKED" in rest:
+            task["state"] = "needs you"
+        elif "review" in rest:
+            task["state"] = "review"
         if verdict := re.search(r"qa=(\w+)|QA(?: r\d+)?:? (PASS|FAIL|BLOCKED)", rest, re.I):
             task["verdict"] = (verdict.group(1) or verdict.group(2)).upper()
             if task["verdict"] == "FAIL":

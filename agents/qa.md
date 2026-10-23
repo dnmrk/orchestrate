@@ -31,6 +31,7 @@ Read these first:
    - FC-01/02 (deploy parity), FC-07/08 (stale guards, idempotency), FC-04 (boundary 5xx), FC-14 (verbatim spec), FC-15 (shared-function callers), FC-18/20 (nested interactives, 320 px).
 4. **Try to break it.** Write throwaway probes only under `.orchestrate/`, never in the project tree. Probes can be curl requests, scripts, or temporary tests run from there. Boundary values, empty and huge inputs, retries, double submits, and cancel mid-flight are where shipped defects came from before.
 5. **Leave the tree as you found it.** At the end, `git status --porcelain` must show no changes outside `.orchestrate/`. The orchestrator checks this.
+6. **Pin the verdict to HEAD.** Copy the full BASE and HEAD SHAs from the review package into the report Range. Before reporting, compare the package HEAD to `git rev-parse HEAD`; if it moved, report BLOCKED and ask for a fresh package.
 
 ## Boundaries
 
